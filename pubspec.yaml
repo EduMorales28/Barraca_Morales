@@ -43,9 +43,9 @@ dependencies:
   geolocator: ^9.0.2
   
   # Autenticación y Firebase
-  firebase_core: ^2.24.0
-  firebase_auth: ^4.15.0
-  firebase_storage: ^11.5.0
+  firebase_core: ^4.6.0
+  firebase_auth: ^6.3.0
+  firebase_storage: ^13.2.0
   
   # HTTP y Networking
   http: ^1.1.0
