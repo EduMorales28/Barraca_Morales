@@ -38,7 +38,11 @@ jobs:
         run: flutter pub get
 
       - name: Build APK release (live API)
-        run: flutter build apk --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
+        shell: bash
+        run: |
+          API_BASE_URL_CLEAN="$(echo "${{ env.API_BASE_URL }}" | sed -E 's/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*//' | xargs)"
+          echo "Using API_BASE_URL=$API_BASE_URL_CLEAN"
+          flutter build apk --release --dart-define=API_BASE_URL="$API_BASE_URL_CLEAN"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -66,7 +70,12 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows release (live API)
-        run: flutter build windows --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
+        shell: pwsh
+        run: |
+          $api = "${{ env.API_BASE_URL }}".Trim()
+          $api = $api -replace '^[A-Za-z_][A-Za-z0-9_]*\s*=\s*', ''
+          Write-Host "Using API_BASE_URL=$api"
+          flutter build windows --release "--dart-define=API_BASE_URL=$api"
 
       - name: Package Windows app
         shell: pwsh
@@ -105,7 +114,11 @@ jobs:
         run: flutter pub get
 
       - name: Build macOS release (live API)
-        run: flutter build macos --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
+        shell: bash
+        run: |
+          API_BASE_URL_CLEAN="$(echo "${{ env.API_BASE_URL }}" | sed -E 's/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*//' | xargs)"
+          echo "Using API_BASE_URL=$API_BASE_URL_CLEAN"
+          flutter build macos --release --dart-define=API_BASE_URL="$API_BASE_URL_CLEAN"
 
       - name: Create DMG
         run: |
