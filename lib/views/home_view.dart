@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:logistica_morales/controllers/auth_controller.dart';
 import 'package:logistica_morales/controllers/dashboard_controller.dart';
@@ -16,14 +19,33 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView> {
   final AuthController _authController = Get.find<AuthController>();
   final DashboardController _dashboardController = Get.find<DashboardController>();
+  Timer? _pollTimer;
+  int _lastUnreadCount = 0;
   int _selectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _dashboardController.loadAll();
+      _dashboardController.loadAll().then((_) {
+        _lastUnreadCount = _dashboardController.unreadNotifications;
+      });
     });
+
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
+      await _dashboardController.loadAll();
+      final unread = _dashboardController.unreadNotifications;
+      if (_authController.user.isConductor && unread > _lastUnreadCount) {
+        Get.snackbar('Pedidos', 'Tienes nuevas notificaciones de pedidos asignados');
+      }
+      _lastUnreadCount = unread;
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -107,6 +129,8 @@ class _HomeViewState extends State<HomeView> {
           authController: _authController,
           dashboardController: _dashboardController,
           onAssign: (pedido) => _showAssignSheet(context, pedido),
+          onReject: (pedido) => _showRejectDialog(context, pedido),
+          onDeliver: (pedido) => _showDeliverDialog(context, pedido),
         ),
       ),
     ];
@@ -227,6 +251,105 @@ class _HomeViewState extends State<HomeView> {
       ),
     );
   }
+
+  Future<void> _showRejectDialog(BuildContext context, PedidoModel pedido) async {
+    final motivoController = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Rechazar pedido #${pedido.id}'),
+        content: TextField(
+          controller: motivoController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Motivo del rechazo',
+            hintText: 'Ej: cliente ausente, dirección incorrecta, vehículo sin capacidad',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final motivo = motivoController.text.trim();
+              if (motivo.isEmpty) {
+                Get.snackbar('Pedido', 'Debes ingresar el motivo del rechazo');
+                return;
+              }
+              Navigator.of(context).pop();
+              await _dashboardController.rejectPedido(pedido: pedido, motivo: motivo);
+            },
+            child: const Text('Confirmar rechazo'),
+          ),
+        ],
+      ),
+    );
+    motivoController.dispose();
+  }
+
+  Future<void> _showDeliverDialog(BuildContext context, PedidoModel pedido) async {
+    final picker = ImagePicker();
+    final observacionesController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Entregar pedido #${pedido.id}'),
+        content: const Text('Selecciona una foto del comprobante de entrega.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              final foto = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+              if (!context.mounted) return;
+              if (foto == null) return;
+
+              navigator.pop();
+
+              final observaciones = await showDialog<String>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Observaciones (opcional)'),
+                  content: TextField(
+                    controller: observacionesController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Observaciones'),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(''),
+                      child: const Text('Omitir'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(observacionesController.text.trim()),
+                      child: const Text('Continuar'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (!context.mounted) return;
+
+              await _dashboardController.markPedidoEntregado(
+                pedido: pedido,
+                foto: foto,
+                observaciones: observaciones,
+              );
+            },
+            child: const Text('Subir foto y entregar'),
+          ),
+        ],
+      ),
+    );
+
+    observacionesController.dispose();
+  }
 }
 
 class _PedidosTab extends StatelessWidget {
@@ -234,11 +357,15 @@ class _PedidosTab extends StatelessWidget {
     required this.authController,
     required this.dashboardController,
     required this.onAssign,
+    required this.onReject,
+    required this.onDeliver,
   });
 
   final AuthController authController;
   final DashboardController dashboardController;
   final ValueChanged<PedidoModel> onAssign;
+  final ValueChanged<PedidoModel> onReject;
+  final ValueChanged<PedidoModel> onDeliver;
 
   @override
   Widget build(BuildContext context) {
@@ -265,8 +392,12 @@ class _PedidosTab extends StatelessWidget {
               pedido: pedido,
               canAssign: authController.user.isAdmin,
               canAccept: authController.user.isConductor && pedido.estado == 'asignado',
+              canReject: authController.user.isConductor && pedido.estado == 'asignado',
+              canDeliver: authController.user.isConductor && pedido.estado == 'pendiente_entrega',
               onAssign: () => onAssign(pedido),
               onAccept: () => dashboardController.acceptPedido(pedido),
+              onReject: () => onReject(pedido),
+              onDeliver: () => onDeliver(pedido),
             );
           },
           separatorBuilder: (context, index) => const SizedBox(height: 12),
@@ -282,15 +413,23 @@ class _PedidoCard extends StatelessWidget {
     required this.pedido,
     required this.canAssign,
     required this.canAccept,
+    required this.canReject,
+    required this.canDeliver,
     required this.onAssign,
     required this.onAccept,
+    required this.onReject,
+    required this.onDeliver,
   });
 
   final PedidoModel pedido;
   final bool canAssign;
   final bool canAccept;
+  final bool canReject;
+  final bool canDeliver;
   final VoidCallback onAssign;
   final VoidCallback onAccept;
+  final VoidCallback onReject;
+  final VoidCallback onDeliver;
 
   @override
   Widget build(BuildContext context) {
@@ -346,26 +485,38 @@ class _PedidoCard extends StatelessWidget {
                 ),
             if (pedido.items.length > 3)
               Text('+${pedido.items.length - 3} items más'),
+            if (pedido.rejectedReason != null && pedido.rejectedReason!.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Motivo de rechazo: ${pedido.rejectedReason!}'),
+            ],
             const SizedBox(height: 16),
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
               children: [
-                if (canAssign) ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: onAssign,
-                      icon: const Icon(Icons.assignment_ind_outlined),
-                      label: const Text('Asignar'),
-                    ),
+                if (canAssign)
+                  OutlinedButton.icon(
+                    onPressed: onAssign,
+                    icon: const Icon(Icons.assignment_ind_outlined),
+                    label: const Text('Asignar'),
                   ),
-                  const SizedBox(width: 12),
-                ],
                 if (canAccept)
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: onAccept,
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Aceptar'),
-                    ),
+                  FilledButton.icon(
+                    onPressed: onAccept,
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Aceptar'),
+                  ),
+                if (canReject)
+                  OutlinedButton.icon(
+                    onPressed: onReject,
+                    icon: const Icon(Icons.cancel_outlined),
+                    label: const Text('Rechazar'),
+                  ),
+                if (canDeliver)
+                  FilledButton.icon(
+                    onPressed: onDeliver,
+                    icon: const Icon(Icons.photo_camera_back_outlined),
+                    label: const Text('Pedido entregado'),
                   ),
               ],
             ),
@@ -392,6 +543,7 @@ class _CreatePedidoTabState extends State<CreatePedidoTab> {
   final _levantadoController = TextEditingController();
   final List<_PedidoItemDraft> _items = [_PedidoItemDraft()];
   bool _sinLevantadoMostrador = false;
+  int? _conductorId;
   bool _submitting = false;
 
   @override
@@ -419,6 +571,31 @@ class _CreatePedidoTabState extends State<CreatePedidoTab> {
               children: [
                 Text('Crear pedido', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 16),
+                Builder(
+                  builder: (_) {
+                    final conductores = widget.dashboardController.conductores;
+                    if (conductores.isNotEmpty &&
+                        ( _conductorId == null || !conductores.any((c) => c.id == _conductorId))) {
+                      _conductorId = conductores.first.id;
+                    }
+
+                    return DropdownButtonFormField<int>(
+                      initialValue: _conductorId,
+                      items: conductores
+                          .map(
+                            (item) => DropdownMenuItem<int>(
+                              value: item.id,
+                              child: Text('${item.nombre} · ${item.email}'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) => setState(() => _conductorId = value),
+                      decoration: const InputDecoration(labelText: 'Conductor asignado'),
+                      validator: (value) => value == null ? 'Debes seleccionar un conductor' : null,
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _clienteController,
                   decoration: const InputDecoration(labelText: 'Cliente'),
@@ -507,6 +684,7 @@ class _CreatePedidoTabState extends State<CreatePedidoTab> {
       await widget.dashboardController.createPedido(
         cliente: _clienteController.text.trim(),
         direccion: _direccionController.text.trim(),
+        conductorId: _conductorId!,
         sinLevantadoMostrador: _sinLevantadoMostrador,
         levantadoEnMostrador: _levantadoController.text.trim(),
         items: payloadItems,
@@ -516,6 +694,9 @@ class _CreatePedidoTabState extends State<CreatePedidoTab> {
       _levantadoController.clear();
       setState(() {
         _sinLevantadoMostrador = false;
+        _conductorId = widget.dashboardController.conductores.isEmpty
+            ? null
+            : widget.dashboardController.conductores.first.id;
         _items
             ..forEach((item) => item.dispose())
             ..clear()
@@ -669,6 +850,8 @@ class _StatusChip extends StatelessWidget {
       'pendiente' => Colors.orange,
       'asignado' => Colors.blue,
       'aceptado' => Colors.green,
+      'pendiente_entrega' => Colors.indigo,
+      'rechazado' => Colors.red,
       'entregado' => Colors.teal,
       _ => Colors.grey,
     };

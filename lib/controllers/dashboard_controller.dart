@@ -4,6 +4,7 @@ import 'package:logistica_morales/models/app_notification.dart';
 import 'package:logistica_morales/models/app_user_summary.dart';
 import 'package:logistica_morales/models/pedido_model.dart';
 import 'package:logistica_morales/services/auth_service.dart';
+import 'package:image_picker/image_picker.dart';
 
 class DashboardController extends GetxController {
   DashboardController(this._authService);
@@ -30,7 +31,11 @@ class DashboardController extends GetxController {
       final results = await Future.wait([
         _authService.getPedidos(),
         _authService.getNotifications(),
-        _authController.user.isAdmin ? _authService.getUsers() : Future.value(<AppUserSummary>[]),
+        _authController.user.isAdmin
+            ? _authService.getUsers()
+            : _authController.user.canCreatePedidos
+                ? _authService.getConductores()
+                : Future.value(<AppUserSummary>[]),
       ]);
 
       pedidos.assignAll(results[0] as List<PedidoModel>);
@@ -75,6 +80,7 @@ class DashboardController extends GetxController {
   Future<void> createPedido({
     required String cliente,
     required String direccion,
+    required int conductorId,
     required bool sinLevantadoMostrador,
     required String levantadoEnMostrador,
     required List<Map<String, dynamic>> items,
@@ -83,6 +89,7 @@ class DashboardController extends GetxController {
       await _authService.createPedido(
         cliente: cliente,
         direccion: direccion,
+        conductorId: conductorId,
         sinLevantadoMostrador: sinLevantadoMostrador,
         levantadoEnMostrador: levantadoEnMostrador,
         items: items,
@@ -91,6 +98,34 @@ class DashboardController extends GetxController {
       Get.snackbar('Pedido', 'Pedido creado correctamente');
     } catch (error) {
       rethrow;
+    }
+  }
+
+  Future<void> rejectPedido({required PedidoModel pedido, required String motivo}) async {
+    try {
+      await _authService.rejectPedido(pedidoId: pedido.id, motivo: motivo);
+      await loadAll();
+      Get.snackbar('Pedido', 'Pedido rechazado correctamente');
+    } catch (error) {
+      Get.snackbar('Pedido', error.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> markPedidoEntregado({
+    required PedidoModel pedido,
+    required XFile foto,
+    String? observaciones,
+  }) async {
+    try {
+      await _authService.markPedidoEntregado(
+        pedidoId: pedido.id,
+        foto: foto,
+        observaciones: observaciones,
+      );
+      await loadAll();
+      Get.snackbar('Pedido', 'Pedido marcado como entregado');
+    } catch (error) {
+      Get.snackbar('Pedido', error.toString().replaceFirst('Exception: ', ''));
     }
   }
 

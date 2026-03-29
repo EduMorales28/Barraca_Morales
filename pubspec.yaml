@@ -57,6 +57,7 @@ dependencies:
   
   # UI mejorada
   flutter_svg: ^2.0.5
+  image_picker: ^1.1.2
   intl: ^0.19.0
   
   # Logging y Debugging

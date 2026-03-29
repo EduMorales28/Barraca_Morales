@@ -5,6 +5,7 @@ import 'package:logistica_morales/models/app_notification.dart';
 import 'package:logistica_morales/models/app_user_summary.dart';
 import 'package:logistica_morales/models/pedido_model.dart';
 import 'package:logistica_morales/models/session_user.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:logistica_morales/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -94,6 +95,16 @@ class AuthService {
     }
   }
 
+  Future<List<AppUserSummary>> getConductores() async {
+    try {
+      final response = await _apiService.client.get('/conductores');
+      final data = List<Map<String, dynamic>>.from(response.data as List);
+      return data.map(AppUserSummary.fromJson).toList();
+    } on DioException catch (error) {
+      throw Exception(_extractError(error, 'No se pudieron cargar los conductores'));
+    }
+  }
+
   Future<void> createUser({
     required String nombre,
     required String email,
@@ -118,6 +129,7 @@ class AuthService {
   Future<void> createPedido({
     required String cliente,
     required String direccion,
+    required int conductorId,
     required bool sinLevantadoMostrador,
     required String levantadoEnMostrador,
     required List<Map<String, dynamic>> items,
@@ -128,6 +140,7 @@ class AuthService {
         data: {
           'cliente': cliente,
           'direccion': direccion,
+          'conductor_id': conductorId,
           'levantado': sinLevantadoMostrador ? 'sin_mostrador' : 'con_mostrador',
           'levantado_en_mostrador': sinLevantadoMostrador ? '' : levantadoEnMostrador,
           'sin_levantado_mostrador': sinLevantadoMostrador,
@@ -155,6 +168,36 @@ class AuthService {
       await _apiService.client.post('/pedidos/$pedidoId/aceptar');
     } on DioException catch (error) {
       throw Exception(_extractError(error, 'No se pudo aceptar el pedido'));
+    }
+  }
+
+  Future<void> rejectPedido({required int pedidoId, required String motivo}) async {
+    try {
+      await _apiService.client.post(
+        '/pedidos/$pedidoId/rechazar',
+        data: {'motivo': motivo},
+      );
+    } on DioException catch (error) {
+      throw Exception(_extractError(error, 'No se pudo rechazar el pedido'));
+    }
+  }
+
+  Future<void> markPedidoEntregado({
+    required int pedidoId,
+    required XFile foto,
+    String? observaciones,
+  }) async {
+    try {
+      final bytes = await foto.readAsBytes();
+      final formData = FormData.fromMap({
+        'foto': MultipartFile.fromBytes(bytes, filename: foto.name),
+        if (observaciones != null && observaciones.trim().isNotEmpty)
+          'observaciones': observaciones.trim(),
+      });
+
+      await _apiService.client.post('/pedidos/$pedidoId/entregado', data: formData);
+    } on DioException catch (error) {
+      throw Exception(_extractError(error, 'No se pudo marcar el pedido como entregado'));
     }
   }
 

@@ -70,6 +70,15 @@ function requireRole(...roles) {
   };
 }
 
+function createNotification(usuarioId, pedidoId, tipo, mensaje, callback) {
+  db.run(
+    `INSERT INTO notificaciones (usuario_id, pedido_id, tipo, mensaje, leida)
+     VALUES (?, ?, ?, ?, 0)`,
+    [usuarioId, pedidoId, tipo, mensaje],
+    callback
+  );
+}
+
 // DATABASE
 const db = new sqlite3.Database(path.join(__dirname, 'barraca.db'), (err) => {
   if (err) console.error('DB Error:', err);
@@ -154,6 +163,8 @@ function initDatabase() {
     db.run(`ALTER TABLE pedidos ADD COLUMN sin_levantado_mostrador INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE pedidos ADD COLUMN created_by INTEGER`, () => {});
     db.run(`ALTER TABLE pedidos ADD COLUMN accepted_at DATETIME`, () => {});
+    db.run(`ALTER TABLE pedidos ADD COLUMN rejected_reason TEXT`, () => {});
+    db.run(`ALTER TABLE pedidos ADD COLUMN rejected_at DATETIME`, () => {});
 
     // Items de pedidos
     db.run(`
@@ -375,6 +386,19 @@ app.get('/usuarios', authenticateToken, requireRole('admin'), (req, res) => {
   });
 });
 
+app.get('/conductores', authenticateToken, requireRole('admin', 'creador_pedidos'), (req, res) => {
+  db.all(
+    `SELECT id, nombre, email, rol, created_at
+     FROM usuarios
+     WHERE rol = 'conductor'
+     ORDER BY nombre COLLATE NOCASE ASC`,
+    (err, users) => {
+      if (err) return res.status(500).json({ error: 'DB Error' });
+      res.json(users);
+    }
+  );
+});
+
 app.post('/usuarios', authenticateToken, requireRole('admin'), (req, res) => {
   const { nombre, email, password, rol } = req.body;
   const allowedRoles = ['admin', 'conductor', 'creador_pedidos'];
@@ -593,6 +617,7 @@ app.post('/pedidos', authenticateToken, requireRole('admin', 'creador_pedidos'),
   const {
     cliente,
     direccion,
+    conductor_id,
     lat,
     lng,
     levantado,
@@ -607,53 +632,69 @@ app.post('/pedidos', authenticateToken, requireRole('admin', 'creador_pedidos'),
     return res.status(400).json({ error: 'El cliente es obligatorio' });
   }
 
-  db.run(
-    'INSERT OR IGNORE INTO clientes (nombre, direccion) VALUES (?, ?)',
-    [clienteNormalizado, direccion || null],
-    () => {}
-  );
+  if (!conductor_id) {
+    return res.status(400).json({ error: 'Debes asignar un conductor al crear el pedido' });
+  }
 
-  db.run(`
-    INSERT INTO pedidos (
-      cliente,
+  db.get('SELECT id, nombre FROM usuarios WHERE id = ? AND rol = ?', [conductor_id, 'conductor'], (conductorErr, conductor) => {
+    if (conductorErr) return res.status(500).json({ error: 'DB Error' });
+    if (!conductor) return res.status(400).json({ error: 'Conductor inválido' });
+
+    db.run(
+      'INSERT OR IGNORE INTO clientes (nombre, direccion) VALUES (?, ?)',
+      [clienteNormalizado, direccion || null],
+      () => {}
+    );
+
+    db.run(`
+      INSERT INTO pedidos (
+        cliente,
+        direccion,
+        lat,
+        lng,
+        estado,
+        conductor_id,
+        levantado,
+        levantado_en_mostrador,
+        sin_levantado_mostrador,
+        created_by
+      )
+      VALUES (?, ?, ?, ?, 'asignado', ?, ?, ?, ?, ?)
+    `, [
+      clienteNormalizado,
       direccion,
-      lat,
-      lng,
+      lat ?? null,
+      lng ?? null,
+      conductor.id,
       levantado,
-      levantado_en_mostrador,
-      sin_levantado_mostrador,
-      created_by
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
-    clienteNormalizado,
-    direccion,
-    lat ?? null,
-    lng ?? null,
-    levantado,
-    levantado_en_mostrador || null,
-    sin_levantado_mostrador ? 1 : 0,
-    req.user.id
-  ], function(err) {
-    if (err) return res.status(500).json({ error: 'DB Error' });
+      levantado_en_mostrador || null,
+      sin_levantado_mostrador ? 1 : 0,
+      req.user.id
+    ], function(err) {
+      if (err) return res.status(500).json({ error: 'DB Error' });
 
-    const pedido_id = this.lastID;
+      const pedido_id = this.lastID;
 
-    // Agregar items
-    items?.forEach(item => {
-      db.run(
-        'INSERT OR IGNORE INTO articulos (codigo, nombre, precio) VALUES (?, ?, ?)',
-        [item.codigo || null, item.nombre, item.precio ?? 0],
-        () => {}
-      );
+      // Agregar items
+      items?.forEach(item => {
+        db.run(
+          'INSERT OR IGNORE INTO articulos (codigo, nombre, precio) VALUES (?, ?, ?)',
+          [item.codigo || null, item.nombre, item.precio ?? 0],
+          () => {}
+        );
 
-      db.run(`
-        INSERT INTO items_pedido (pedido_id, codigo, nombre, cantidad, precio)
-        VALUES (?, ?, ?, ?, ?)
-      `, [pedido_id, item.codigo || null, item.nombre, item.cantidad, item.precio ?? 0]);
+        db.run(`
+          INSERT INTO items_pedido (pedido_id, codigo, nombre, cantidad, precio)
+          VALUES (?, ?, ?, ?, ?)
+        `, [pedido_id, item.codigo || null, item.nombre, item.cantidad, item.precio ?? 0]);
+      });
+
+      const mensaje = `Nuevo pedido #${pedido_id} asignado a ${conductor.nombre}: ${clienteNormalizado}`;
+      createNotification(conductor.id, pedido_id, 'pedido_asignado', mensaje, (notificationErr) => {
+        if (notificationErr) return res.status(500).json({ error: 'DB Error' });
+        res.status(201).json({ id: pedido_id, mensaje: 'Pedido creado y asignado' });
+      });
     });
-
-    res.status(201).json({ id: pedido_id, mensaje: 'Pedido creado' });
   });
 });
 
@@ -662,12 +703,27 @@ app.post('/pedidos/:id/asignar', authenticateToken, requireRole('admin'), (req, 
   const { conductor_id } = req.body;
   const { id } = req.params;
 
-  db.run(`
-    UPDATE pedidos SET conductor_id = ?, estado = 'asignado'
-    WHERE id = ?
-  `, [conductor_id, id], function(err) {
-    if (err) return res.status(500).json({ error: 'DB Error' });
-    res.json({ mensaje: 'Pedido asignado' });
+  db.get('SELECT id, nombre FROM usuarios WHERE id = ? AND rol = ?', [conductor_id, 'conductor'], (conductorErr, conductor) => {
+    if (conductorErr) return res.status(500).json({ error: 'DB Error' });
+    if (!conductor) return res.status(400).json({ error: 'Conductor inválido' });
+
+    db.get('SELECT id, cliente FROM pedidos WHERE id = ?', [id], (pedidoErr, pedido) => {
+      if (pedidoErr) return res.status(500).json({ error: 'DB Error' });
+      if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+
+      db.run(`
+        UPDATE pedidos SET conductor_id = ?, estado = 'asignado', rejected_reason = NULL, rejected_at = NULL
+        WHERE id = ?
+      `, [conductor_id, id], function(updateErr) {
+        if (updateErr) return res.status(500).json({ error: 'DB Error' });
+
+        const mensaje = `Nuevo pedido #${pedido.id} asignado a ${conductor.nombre}: ${pedido.cliente}`;
+        createNotification(conductor.id, pedido.id, 'pedido_asignado', mensaje, (notificationErr) => {
+          if (notificationErr) return res.status(500).json({ error: 'DB Error' });
+          res.json({ mensaje: 'Pedido asignado' });
+        });
+      });
+    });
   });
 });
 
@@ -686,12 +742,12 @@ app.post('/pedidos/:id/aceptar', authenticateToken, requireRole('conductor'), (r
       if (!pedido.conductor_id || Number(pedido.conductor_id) !== Number(req.user.id)) {
         return res.status(403).json({ error: 'No puedes aceptar un pedido asignado a otro conductor' });
       }
-      if (pedido.estado === 'aceptado') {
+      if (pedido.estado === 'pendiente_entrega' || pedido.estado === 'entregado') {
         return res.status(400).json({ error: 'El pedido ya fue aceptado' });
       }
 
       db.run(
-        `UPDATE pedidos SET estado = 'aceptado', accepted_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE pedidos SET estado = 'pendiente_entrega', accepted_at = CURRENT_TIMESTAMP, rejected_reason = NULL, rejected_at = NULL WHERE id = ?`,
         [id],
         function(updateErr) {
           if (updateErr) return res.status(500).json({ error: 'DB Error' });
@@ -706,7 +762,7 @@ app.post('/pedidos/:id/aceptar', authenticateToken, requireRole('conductor'), (r
 
             admins.forEach((admin) => destinatarios.add(Number(admin.id)));
 
-            const mensaje = `El pedido #${pedido.id} de ${pedido.cliente} fue aceptado por ${pedido.conductor_nombre || 'el conductor asignado'}`;
+            const mensaje = `El pedido #${pedido.id} de ${pedido.cliente} fue aceptado por ${pedido.conductor_nombre || 'el conductor asignado'} y quedó pendiente de entrega`;
             const destinatariosArray = Array.from(destinatarios);
 
             if (destinatariosArray.length === 0) {
@@ -727,6 +783,67 @@ app.post('/pedidos/:id/aceptar', authenticateToken, requireRole('conductor'), (r
                   }
                 }
               );
+            });
+          });
+        }
+      );
+    }
+  );
+});
+
+app.post('/pedidos/:id/rechazar', authenticateToken, requireRole('conductor'), (req, res) => {
+  const { id } = req.params;
+  const motivo = String(req.body?.motivo || '').trim();
+
+  if (!motivo) {
+    return res.status(400).json({ error: 'Debes indicar el motivo del rechazo' });
+  }
+
+  db.get(
+    `SELECT p.*, u.nombre as conductor_nombre
+     FROM pedidos p
+     LEFT JOIN usuarios u ON p.conductor_id = u.id
+     WHERE p.id = ?`,
+    [id],
+    (err, pedido) => {
+      if (err) return res.status(500).json({ error: 'DB Error' });
+      if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+      if (!pedido.conductor_id || Number(pedido.conductor_id) !== Number(req.user.id)) {
+        return res.status(403).json({ error: 'No puedes rechazar un pedido asignado a otro conductor' });
+      }
+      if (pedido.estado === 'entregado') {
+        return res.status(400).json({ error: 'No puedes rechazar un pedido entregado' });
+      }
+
+      db.run(
+        `UPDATE pedidos
+         SET estado = 'rechazado', rejected_reason = ?, rejected_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [motivo, id],
+        function(updateErr) {
+          if (updateErr) return res.status(500).json({ error: 'DB Error' });
+
+          const destinatarios = new Set();
+          if (pedido.created_by) destinatarios.add(Number(pedido.created_by));
+
+          db.all(`SELECT id FROM usuarios WHERE rol = 'admin'`, (adminsErr, admins) => {
+            if (adminsErr) return res.status(500).json({ error: 'DB Error' });
+            admins.forEach((admin) => destinatarios.add(Number(admin.id)));
+
+            const mensaje = `El pedido #${pedido.id} fue rechazado por ${pedido.conductor_nombre || 'el conductor asignado'}. Motivo: ${motivo}`;
+            const destinatariosArray = Array.from(destinatarios);
+
+            if (destinatariosArray.length === 0) return res.json({ mensaje: 'Pedido rechazado' });
+
+            let processed = 0;
+            destinatariosArray.forEach((usuarioId) => {
+              createNotification(usuarioId, pedido.id, 'pedido_rechazado', mensaje, (notificationErr) => {
+                if (notificationErr) return res.status(500).json({ error: 'DB Error' });
+                processed += 1;
+                if (processed === destinatariosArray.length) {
+                  res.json({ mensaje: 'Pedido rechazado' });
+                }
+              });
             });
           });
         }
@@ -845,6 +962,65 @@ app.post('/entregas', authenticateToken, requireRole('admin', 'conductor'), uplo
       if (err) return res.status(500).json({ error: 'DB Error' });
       res.status(201).json({ id: this.lastID, mensaje: 'Entrega registrada' });
     });
+  });
+});
+
+app.post('/pedidos/:id/entregado', authenticateToken, requireRole('conductor'), upload.single('foto'), (req, res) => {
+  const { id } = req.params;
+  const foto = req.file ? req.file.filename : null;
+  const observaciones = req.body?.observaciones || null;
+
+  if (!foto) {
+    return res.status(400).json({ error: 'Debes adjuntar una foto de entrega' });
+  }
+
+  db.get('SELECT * FROM pedidos WHERE id = ?', [id], (err, pedido) => {
+    if (err) return res.status(500).json({ error: 'DB Error' });
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
+    if (Number(pedido.conductor_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: 'No puedes marcar como entregado un pedido asignado a otro conductor' });
+    }
+    if (pedido.estado !== 'pendiente_entrega') {
+      return res.status(400).json({ error: 'El pedido debe estar pendiente de entrega para marcarlo como entregado' });
+    }
+
+    db.run(
+      'INSERT INTO entregas (pedido_id, foto, observaciones) VALUES (?, ?, ?)',
+      [id, foto, observaciones],
+      function(insertErr) {
+        if (insertErr) return res.status(500).json({ error: 'DB Error' });
+
+        db.run(`UPDATE pedidos SET estado = 'entregado' WHERE id = ?`, [id], (updateErr) => {
+          if (updateErr) return res.status(500).json({ error: 'DB Error' });
+
+          const destinatarios = new Set();
+          if (pedido.created_by) destinatarios.add(Number(pedido.created_by));
+
+          db.all(`SELECT id FROM usuarios WHERE rol = 'admin'`, (adminsErr, admins) => {
+            if (adminsErr) return res.status(500).json({ error: 'DB Error' });
+            admins.forEach((admin) => destinatarios.add(Number(admin.id)));
+
+            const mensaje = `El pedido #${pedido.id} fue marcado como entregado y tiene comprobante fotográfico`;
+            const destinatariosArray = Array.from(destinatarios);
+
+            if (destinatariosArray.length === 0) {
+              return res.json({ mensaje: 'Pedido entregado', entrega_id: this.lastID, foto });
+            }
+
+            let processed = 0;
+            destinatariosArray.forEach((usuarioId) => {
+              createNotification(usuarioId, pedido.id, 'pedido_entregado', mensaje, (notificationErr) => {
+                if (notificationErr) return res.status(500).json({ error: 'DB Error' });
+                processed += 1;
+                if (processed === destinatariosArray.length) {
+                  res.json({ mensaje: 'Pedido entregado', entrega_id: this.lastID, foto });
+                }
+              });
+            });
+          });
+        });
+      }
+    );
   });
 });
 

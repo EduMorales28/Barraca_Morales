@@ -36,6 +36,8 @@ class PedidoModel {
   final String? levantadoEnMostrador;
   final bool sinLevantadoMostrador;
   final String? acceptedAt;
+  final String? rejectedReason;
+  final String? rejectedAt;
   final String? createdAt;
   final List<PedidoItemModel> items;
 
@@ -51,6 +53,8 @@ class PedidoModel {
     required this.levantadoEnMostrador,
     required this.sinLevantadoMostrador,
     required this.acceptedAt,
+    required this.rejectedReason,
+    required this.rejectedAt,
     required this.createdAt,
     required this.items,
   });
@@ -70,6 +74,8 @@ class PedidoModel {
       levantadoEnMostrador: json['levantado_en_mostrador'] as String?,
       sinLevantadoMostrador: (json['sin_levantado_mostrador'] as num?)?.toInt() == 1,
       acceptedAt: json['accepted_at'] as String?,
+      rejectedReason: json['rejected_reason'] as String?,
+      rejectedAt: json['rejected_at'] as String?,
       createdAt: json['created_at'] as String?,
       items: rawItems.map((item) => PedidoItemModel.fromJson(item as Map<String, dynamic>)).toList(),
     );
