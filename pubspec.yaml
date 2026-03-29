@@ -45,7 +45,6 @@ dependencies:
   # Autenticación y Firebase
   firebase_core: ^2.24.0
   firebase_auth: ^4.15.0
-  cloud_firestore: ^4.14.0
   firebase_storage: ^11.5.0
   
   # HTTP y Networking

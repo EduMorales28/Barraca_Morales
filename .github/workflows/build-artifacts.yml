@@ -2,9 +2,17 @@ name: Build Artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "URL publica del backend (ej: https://api.tudominio.com)"
+        required: true
+        default: "http://localhost:3000"
   push:
     tags:
-      - 'v*'
+      - "v*"
+
+env:
+  API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.API_BASE_URL || 'http://localhost:3000' }}
 
 jobs:
   android-apk:
@@ -19,7 +27,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -29,8 +37,8 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build APK release
-        run: flutter build apk --release
+      - name: Build APK release (live API)
+        run: flutter build apk --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -57,16 +65,55 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Build Windows release
-        run: flutter build windows --release
+      - name: Build Windows release (live API)
+        run: flutter build windows --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
 
       - name: Package Windows app
         shell: pwsh
         run: |
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath build/windows/logistica_morales-windows-release.zip
 
-      - name: Upload Windows package
+      - name: Upload Windows ZIP
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe-release
           path: build/windows/logistica_morales-windows-release.zip
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-file
+          path: build/windows/x64/runner/Release/logistica_morales.exe
+
+  macos-dmg:
+    name: macOS DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build macOS release (live API)
+        run: flutter build macos --release --dart-define=API_BASE_URL=${{ env.API_BASE_URL }}
+
+      - name: Create DMG
+        run: |
+          mkdir -p dist/macos
+          hdiutil create -volname "LogisticaMorales" -srcfolder build/macos/Build/Products/Release/logistica_morales.app -ov -format UDZO dist/macos/logistica_morales-macos-release.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg-release
+          path: dist/macos/logistica_morales-macos-release.dmg
