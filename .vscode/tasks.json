@@ -1,0 +1,90 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Flutter: Pub Get",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter pub get",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Flutter: Analyze",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter analyze",
+			"group": {
+				"kind": "build"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Flutter: Build Debug APK",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter build apk --debug",
+			"group": {
+				"kind": "build"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Flutter: Run Android",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter run -d android",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"isBackground": false
+		},
+		{
+			"label": "Flutter: Clean",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter clean",
+			"group": {
+				"kind": "build"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Start Backend",
+			"type": "shell",
+			"command": "cd /Users/eduardomorales/Desktop/PruebaAndroid/backend-complete && node index.js",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Smoke Backend JWT",
+			"type": "shell",
+			"command": "set +H && ADMIN_TOKEN=$(curl -s -X POST http://localhost:3000/login -H 'Content-Type: application/json' -d '{\"email\":\"admin@test.com\",\"password\":\"1234\"}' | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).token))\") && CREADOR_TOKEN=$(curl -s -X POST http://localhost:3000/login -H 'Content-Type: application/json' -d '{\"email\":\"creador.pedidos@test.com\",\"password\":\"1234\"}' | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).token))\") && CONDUCTOR_TOKEN=$(curl -s -X POST http://localhost:3000/login -H 'Content-Type: application/json' -d '{\"email\":\"conductor1@test.com\",\"password\":\"1234\"}' | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).token))\") && PEDIDO_ID=$(curl -s -X POST http://localhost:3000/pedidos -H 'Content-Type: application/json' -H \"Authorization: Bearer $CREADOR_TOKEN\" -d '{\"cliente\":\"Chequeo General\",\"direccion\":\"Av. Validacion 123, Montevideo\",\"levantado\":\"con_mostrador\",\"levantado_en_mostrador\":\"Cajas\",\"sin_levantado_mostrador\":false,\"items\":[{\"codigo\":\"CHK-001\",\"nombre\":\"Item chequeo\",\"cantidad\":1,\"precio\":10}]}' | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).id))\") && ASIGNAR=$(curl -s -o /tmp/asignar_general.out -w '%{http_code}' -X POST http://localhost:3000/pedidos/$PEDIDO_ID/asignar -H 'Content-Type: application/json' -H \"Authorization: Bearer $ADMIN_TOKEN\" -d '{\"conductor_id\":2}') && ACEPTAR=$(curl -s -o /tmp/aceptar_general.out -w '%{http_code}' -X POST http://localhost:3000/pedidos/$PEDIDO_ID/aceptar -H \"Authorization: Bearer $CONDUCTOR_TOKEN\") && ADMIN_NOTIFS=$(curl -s http://localhost:3000/notificaciones -H \"Authorization: Bearer $ADMIN_TOKEN\" | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const arr=JSON.parse(d); console.log(arr.some(n=>String(n.pedido_id)===process.argv[1]) ? 'yes' : 'no')})\" \"$PEDIDO_ID\") && CREADOR_NOTIFS=$(curl -s http://localhost:3000/notificaciones -H \"Authorization: Bearer $CREADOR_TOKEN\" | node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const arr=JSON.parse(d); console.log(arr.some(n=>String(n.pedido_id)===process.argv[1]) ? 'yes' : 'no')})\" \"$PEDIDO_ID\") && printf 'pedido=%s asignar=%s aceptar=%s admin_notif=%s creador_notif=%s\\n' \"$PEDIDO_ID\" \"$ASIGNAR\" \"$ACEPTAR\" \"$ADMIN_NOTIFS\" \"$CREADOR_NOTIFS\"",
+			"group": "build"
+		},
+		{
+			"label": "Cleanup Smoke Pedido",
+			"type": "shell",
+			"command": "cd /Users/eduardomorales/Desktop/PruebaAndroid/backend-complete && node --input-type=module -e \"import sqlite3 from 'sqlite3'; const db = new sqlite3.Database('barraca.db'); db.get(\\\"SELECT id FROM pedidos WHERE cliente = 'Chequeo General' ORDER BY id DESC LIMIT 1\\\", (err, row) => { if (err) { console.error(err); process.exit(1); } if (!row) { console.log('sin pedido temporal'); db.close(); return; } db.serialize(() => { db.run('DELETE FROM notificaciones WHERE pedido_id = ?', [row.id]); db.run('DELETE FROM items_pedido WHERE pedido_id = ?', [row.id]); db.run('DELETE FROM entregas WHERE pedido_id = ?', [row.id]); db.run('DELETE FROM pedidos WHERE id = ?', [row.id], function(deleteErr) { if (deleteErr) { console.error(deleteErr); process.exit(1); } console.log('pedido temporal eliminado', row.id); db.close(); }); }); });\"",
+			"group": "build"
+		},
+		{
+			"label": "Flutter: Test",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter test",
+			"group": "test"
+		},
+		{
+			"label": "Flutter: Devices",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter devices",
+			"group": "test"
+		},
+		{
+			"label": "Flutter: Doctor",
+			"type": "shell",
+			"command": "source ~/.zshrc && flutter doctor -v",
+			"group": "build"
+		}
+	]
+}

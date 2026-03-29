@@ -1,0 +1,339 @@
+{
+  "info": {
+    "name": "LogisticaMorales API",
+    "description": "Colección Postman para API REST de Logística",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "logistica-morales-collection",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  var jsonData = pm.response.json();",
+                  "  pm.environment.set('token', jsonData.data.token);",
+                  "  pm.environment.set('userId', jsonData.data.usuario.id);",
+                  "  pm.environment.set('userRole', jsonData.data.usuario.rol);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"conductor@logistica.com\",\n  \"password\": \"securePassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Pedidos",
+      "item": [
+        {
+          "name": "Crear Pedido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clienteId\": \"CLIENT_ABC\",\n  \"numero\": \"PED-2026-001\",\n  \"direccion\": \"Av. Principal 123, Lima\",\n  \"referencia\": \"Casa con reja azul\",\n  \"latitud\": -12.0496,\n  \"longitud\": -77.0265,\n  \"montoTotal\": 1000.00,\n  \"fechaEntregaEstimada\": \"2026-03-30\",\n  \"observaciones\": \"Frágil - manejar con cuidado\",\n  \"items\": [\n    {\n      \"descripcion\": \"Descarga tipo A\",\n      \"cantidad\": 5,\n      \"precioUnitario\": 200.00\n    },\n    {\n      \"descripcion\": \"Descarga tipo B\",\n      \"cantidad\": 2,\n      \"precioUnitario\": 100.00\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/pedidos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pedidos"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Listar Pedidos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pedidos?estado=pendiente&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pedidos"
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "pendiente"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Obtener Pedido por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pedidos/PED_UUID_001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pedidos",
+                "PED_UUID_001"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Actualizar Estado de Pedido",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"en_ruta\",\n  \"observaciones\": \"Conductor en ruta\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/pedidos/PED_UUID_001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pedidos",
+                "PED_UUID_001"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Asignar Conductor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conductorId\": \"COND_001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/pedidos/PED_UUID_001/asignar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pedidos",
+                "PED_UUID_001",
+                "asignar"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Conductor",
+      "item": [
+        {
+          "name": "Obtener Mis Pedidos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/conductor/mis-pedidos?estado=en_ruta,parcial",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "conductor",
+                "mis-pedidos"
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "en_ruta,parcial"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Entregas",
+      "item": [
+        {
+          "name": "Crear Entrega con Foto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "pedidoId",
+                  "value": "PED_UUID_001",
+                  "type": "text"
+                },
+                {
+                  "key": "itemPedidoId",
+                  "value": "ITEM_001",
+                  "type": "text"
+                },
+                {
+                  "key": "cantidadLevantada",
+                  "value": "5",
+                  "type": "text"
+                },
+                {
+                  "key": "observaciones",
+                  "value": "Cliente satisfecho, entrega completa\",
+                  "type": "text"
+                },
+                {
+                  "key": "recibidoPor",
+                  "value": "Juan Pérez (Cliente)\",
+                  "type": "text"
+                },
+                {
+                  "key": "dniRecibidor",
+                  "value": "12345678\",
+                  "type": "text"
+                },
+                {
+                  "key": "foto\",
+                  "type": "file\",
+                  "src": []
+                },
+                {
+                  "key": "fotoFirma\",
+                  "type": "file\",
+                  "src\": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/entregas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "entregas"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/v1"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "userRole",
+      "value": ""
+    }
+  ]
+}
