@@ -36,7 +36,13 @@ class _HomeViewState extends State<HomeView> {
       await _dashboardController.loadAll();
       final unread = _dashboardController.unreadNotifications;
       if (_authController.user.isConductor && unread > _lastUnreadCount) {
-        Get.snackbar('Pedidos', 'Tienes nuevas notificaciones de pedidos asignados');
+        Get.snackbar(
+          'Pedidos',
+          'Tienes nuevas notificaciones de pedidos asignados',
+          backgroundColor: const Color(0xFFEF6B3E),
+          colorText: Colors.white,
+          snackPosition: SnackPosition.TOP,
+        );
       }
       _lastUnreadCount = unread;
     });
@@ -121,19 +127,37 @@ class _HomeViewState extends State<HomeView> {
   }
 
   List<_HomeSection> _buildSections(SessionUser user) {
-    final sections = <_HomeSection>[
-      _HomeSection(
-        label: 'Pedidos',
-        icon: Icons.local_shipping_outlined,
-        builder: () => _PedidosTab(
-          authController: _authController,
-          dashboardController: _dashboardController,
-          onAssign: (pedido) => _showAssignSheet(context, pedido),
-          onReject: (pedido) => _showRejectDialog(context, pedido),
-          onDeliver: (pedido) => _showDeliverDialog(context, pedido),
+    final sections = <_HomeSection>[];
+
+    // ── Conductores: tab dedicado con sus pedidos agrupados ──
+    if (user.isConductor) {
+      sections.add(
+        _HomeSection(
+          label: 'Mis Pedidos',
+          icon: Icons.local_shipping_outlined,
+          builder: () => _ConductorTab(
+            dashboardController: _dashboardController,
+            onAccept: (p) => _dashboardController.acceptPedido(p),
+            onReject: (p) => _showRejectDialog(context, p),
+            onDeliver: (p) => _showDeliverDialog(context, p),
+          ),
         ),
-      ),
-    ];
+      );
+    } else {
+      sections.add(
+        _HomeSection(
+          label: 'Pedidos',
+          icon: Icons.local_shipping_outlined,
+          builder: () => _PedidosTab(
+            authController: _authController,
+            dashboardController: _dashboardController,
+            onAssign: (pedido) => _showAssignSheet(context, pedido),
+            onReject: (pedido) => _showRejectDialog(context, pedido),
+            onDeliver: (pedido) => _showDeliverDialog(context, pedido),
+          ),
+        ),
+      );
+    }
 
     if (user.canCreatePedidos) {
       sections.add(
@@ -177,7 +201,7 @@ class _HomeViewState extends State<HomeView> {
             itemBuilder: (_, index) {
               final notification = notifications[index];
               return ListTile(
-                tileColor: notification.leida ? null : Colors.teal.withValues(alpha: 0.08),
+                tileColor: notification.leida ? null : const Color(0xFFFFF7ED),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 title: Text(notification.mensaje),
                 subtitle: Text(notification.createdAt),
@@ -293,62 +317,533 @@ class _HomeViewState extends State<HomeView> {
     final picker = ImagePicker();
     final observacionesController = TextEditingController();
 
-    await showDialog<void>(
+    // Preguntar si tomar foto nueva o desde galería
+    final source = await showDialog<ImageSource>(
       context: context,
       builder: (_) => AlertDialog(
         title: Text('Entregar pedido #${pedido.id}'),
-        content: const Text('Selecciona una foto del comprobante de entrega.'),
+        content: const Text('¿Cómo querés subir la foto de entrega?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).pop(ImageSource.gallery),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('Galería'),
           ),
-          FilledButton(
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              final foto = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
-              if (!context.mounted) return;
-              if (foto == null) return;
-
-              navigator.pop();
-
-              final observaciones = await showDialog<String>(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: const Text('Observaciones (opcional)'),
-                  content: TextField(
-                    controller: observacionesController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Observaciones'),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(''),
-                      child: const Text('Omitir'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.of(context).pop(observacionesController.text.trim()),
-                      child: const Text('Continuar'),
-                    ),
-                  ],
-                ),
-              );
-
-              if (!context.mounted) return;
-
-              await _dashboardController.markPedidoEntregado(
-                pedido: pedido,
-                foto: foto,
-                observaciones: observaciones,
-              );
-            },
-            child: const Text('Subir foto y entregar'),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(ImageSource.camera),
+            icon: const Icon(Icons.photo_camera),
+            label: const Text('Tomar foto'),
           ),
         ],
       ),
     );
 
+    if (source == null) {
+      observacionesController.dispose();
+      return;
+    }
+
+    if (!context.mounted) {
+      observacionesController.dispose();
+      return;
+    }
+
+    final foto = await picker.pickImage(source: source, imageQuality: 80);
+    if (!context.mounted) {
+      observacionesController.dispose();
+      return;
+    }
+    if (foto == null) {
+      observacionesController.dispose();
+      return;
+    }
+
+    final observaciones = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Observaciones (opcional)'),
+        content: TextField(
+          controller: observacionesController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Observaciones',
+            hintText: 'Ej: entregado al portero, firmado por el cliente…',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(''),
+            child: const Text('Omitir'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(observacionesController.text.trim()),
+            child: const Text('Confirmar entrega'),
+          ),
+        ],
+      ),
+    );
+
+    if (!context.mounted) {
+      observacionesController.dispose();
+      return;
+    }
+
+    await _dashboardController.markPedidoEntregado(
+      pedido: pedido,
+      foto: foto,
+      observaciones: observaciones,
+    );
+
     observacionesController.dispose();
+  }
+}
+
+class _ConductorTab extends StatelessWidget {
+  const _ConductorTab({
+    required this.dashboardController,
+    required this.onAccept,
+    required this.onReject,
+    required this.onDeliver,
+  });
+
+  final DashboardController dashboardController;
+  final ValueChanged<PedidoModel> onAccept;
+  final ValueChanged<PedidoModel> onReject;
+  final ValueChanged<PedidoModel> onDeliver;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      if (dashboardController.isLoading.value && dashboardController.pedidos.isEmpty) {
+        return const Center(child: CircularProgressIndicator());
+      }
+
+      final nuevas = dashboardController.pedidos
+          .where((p) => p.estado == 'asignado')
+          .toList();
+      final enReparto = dashboardController.pedidos
+          .where((p) => p.estado == 'pendiente_entrega')
+          .toList();
+      final historial = dashboardController.pedidos
+          .where((p) => p.estado == 'entregado' || p.estado == 'rechazado')
+          .toList();
+
+      final todoVacio = nuevas.isEmpty && enReparto.isEmpty;
+
+      return RefreshIndicator(
+        onRefresh: dashboardController.loadAll,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // ── Sección 1: En reparto → botón grande "Entregar" ──
+            if (enReparto.isNotEmpty) ...[
+              _SectionHeader(
+                title: 'Pendientes de entrega',
+                count: enReparto.length,
+                color: const Color(0xFF3730A3),
+                bgColor: const Color(0xFFE0E7FF),
+              ),
+              const SizedBox(height: 12),
+              ...enReparto.map(
+                (p) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _ConductorDeliveryCard(
+                    pedido: p,
+                    onDeliver: () => onDeliver(p),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // ── Sección 2: Nuevas asignaciones ──
+            if (nuevas.isNotEmpty) ...[
+              _SectionHeader(
+                title: 'Nuevas asignaciones',
+                count: nuevas.length,
+                color: const Color(0xFF1E40AF),
+                bgColor: const Color(0xFFDBEAFE),
+              ),
+              const SizedBox(height: 12),
+              ...nuevas.map(
+                (p) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _ConductorAssignedCard(
+                    pedido: p,
+                    onAccept: () => onAccept(p),
+                    onReject: () => onReject(p),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // ── Sin pedidos activos ──
+            if (todoVacio)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Column(
+                    children: [
+                      Icon(Icons.check_circle_outline, size: 64, color: Colors.grey.shade300),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No tenés pedidos activos',
+                        style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // ── Historial ──
+            if (historial.isNotEmpty) ...[
+              const Divider(height: 32),
+              _SectionHeader(
+                title: 'Historial',
+                count: historial.length,
+                color: const Color(0xFF6B7280),
+                bgColor: const Color(0xFFF3F4F6),
+              ),
+              const SizedBox(height: 12),
+              ...historial.map(
+                (p) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _PedidoCard(
+                    pedido: p,
+                    canAssign: false,
+                    canAccept: false,
+                    canReject: false,
+                    canDeliver: false,
+                    onAssign: () {},
+                    onAccept: () {},
+                    onReject: () {},
+                    onDeliver: () {},
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    });
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.title,
+    required this.count,
+    required this.color,
+    required this.bgColor,
+  });
+
+  final String title;
+  final int count;
+  final Color color;
+  final Color bgColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF2D3748),
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(20)),
+          child: Text(
+            '$count',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tarjeta para pedidos en estado `pendiente_entrega` — botón cámara prominente
+class _ConductorDeliveryCard extends StatelessWidget {
+  const _ConductorDeliveryCard({required this.pedido, required this.onDeliver});
+
+  final PedidoModel pedido;
+  final VoidCallback onDeliver;
+
+  @override
+  Widget build(BuildContext context) {
+    final formatter = DateFormat('dd/MM/yyyy HH:mm');
+    final dateText = pedido.createdAt == null
+        ? 'Sin fecha'
+        : formatter.format(DateTime.parse(pedido.createdAt!));
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFC7D2FE), width: 1.5),
+      ),
+      color: const Color(0xFFF5F3FF),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.local_shipping, color: Color(0xFF4F46E5), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pedido.cliente,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Color(0xFF1E1B4B),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 14, color: Color(0xFF6B7280)),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              pedido.direccion,
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const _StatusChip(status: 'pendiente_entrega'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.inventory_2_outlined, size: 14, color: Color(0xFF6B7280)),
+                const SizedBox(width: 4),
+                Text(
+                  '${pedido.items.length} item${pedido.items.length != 1 ? 's' : ''}',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(width: 16),
+                const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF6B7280)),
+                const SizedBox(width: 4),
+                Text(dateText, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+              ],
+            ),
+            if (pedido.items.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ...pedido.items.take(2).map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '• ${item.cantidad}x ${item.nombre}',
+                        style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
+                      ),
+                    ),
+                  ),
+              if (pedido.items.length > 2)
+                Text(
+                  '  +${pedido.items.length - 2} más',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                ),
+            ],
+            const SizedBox(height: 16),
+            // ── Botón grande de entrega ──
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: onDeliver,
+                icon: const Icon(Icons.photo_camera, size: 22),
+                label: const Text(
+                  'Marcar como Entregado',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF6B3E),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tarjeta para pedidos en estado `asignado` — Aceptar o Rechazar
+class _ConductorAssignedCard extends StatelessWidget {
+  const _ConductorAssignedCard({
+    required this.pedido,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final PedidoModel pedido;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final formatter = DateFormat('dd/MM/yyyy HH:mm');
+    final dateText = pedido.createdAt == null
+        ? 'Sin fecha'
+        : formatter.format(DateTime.parse(pedido.createdAt!));
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFBFDBFE), width: 1.5),
+      ),
+      color: const Color(0xFFF0F9FF),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.new_releases_outlined, color: Color(0xFF1D4ED8), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pedido.cliente,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Color(0xFF1E3A5F),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 14, color: Color(0xFF6B7280)),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              pedido.direccion,
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const _StatusChip(status: 'asignado'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.inventory_2_outlined, size: 14, color: Color(0xFF6B7280)),
+                const SizedBox(width: 4),
+                Text(
+                  '${pedido.items.length} item${pedido.items.length != 1 ? 's' : ''}',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(width: 16),
+                const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF6B7280)),
+                const SizedBox(width: 4),
+                Text(dateText, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+              ],
+            ),
+            if (pedido.levantadoEnMostrador != null && pedido.levantadoEnMostrador!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.storefront_outlined, size: 14, color: Color(0xFF6B7280)),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Mostrador: ${pedido.levantadoEnMostrador!}',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                  ),
+                ],
+              ),
+            ],
+            if (pedido.items.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ...pedido.items.take(3).map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '• ${item.cantidad}x ${item.nombre}',
+                        style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
+                      ),
+                    ),
+                  ),
+              if (pedido.items.length > 3)
+                Text(
+                  '  +${pedido.items.length - 3} más',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: onReject,
+                      icon: const Icon(Icons.cancel_outlined, size: 18),
+                      label: const Text('Rechazar'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFDC2626),
+                        side: const BorderSide(color: Color(0xFFDC2626)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 48,
+                    child: FilledButton.icon(
+                      onPressed: onAccept,
+                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text(
+                        'Aceptar pedido',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1D4ED8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -571,30 +1066,42 @@ class _CreatePedidoTabState extends State<CreatePedidoTab> {
               children: [
                 Text('Crear pedido', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 16),
-                Builder(
-                  builder: (_) {
-                    final conductores = widget.dashboardController.conductores;
-                    if (conductores.isNotEmpty &&
-                        ( _conductorId == null || !conductores.any((c) => c.id == _conductorId))) {
-                      _conductorId = conductores.first.id;
-                    }
+                Obx(() {
+                  final conductores = widget.dashboardController.conductores;
+                  if (conductores.isNotEmpty &&
+                      (_conductorId == null || !conductores.any((c) => c.id == _conductorId))) {
+                    _conductorId = conductores.first.id;
+                  }
 
-                    return DropdownButtonFormField<int>(
-                      initialValue: _conductorId,
-                      items: conductores
-                          .map(
-                            (item) => DropdownMenuItem<int>(
-                              value: item.id,
-                              child: Text('${item.nombre} · ${item.email}'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) => setState(() => _conductorId = value),
-                      decoration: const InputDecoration(labelText: 'Conductor asignado'),
-                      validator: (value) => value == null ? 'Debes seleccionar un conductor' : null,
+                  if (conductores.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                          SizedBox(width: 12),
+                          Text('Cargando conductores…'),
+                        ],
+                      ),
                     );
-                  },
-                ),
+                  }
+
+                  return DropdownButtonFormField<int>(
+                    key: ValueKey(_conductorId),
+                    initialValue: _conductorId,
+                    items: conductores
+                        .map(
+                          (item) => DropdownMenuItem<int>(
+                            value: item.id,
+                            child: Text('${item.nombre} · ${item.email}'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() => _conductorId = value),
+                    decoration: const InputDecoration(labelText: 'Conductor asignado *'),
+                    validator: (value) => value == null ? 'Debes seleccionar un conductor' : null,
+                  );
+                }),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _clienteController,
@@ -846,20 +1353,31 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (status) {
-      'pendiente' => Colors.orange,
-      'asignado' => Colors.blue,
-      'aceptado' => Colors.green,
-      'pendiente_entrega' => Colors.indigo,
-      'rechazado' => Colors.red,
-      'entregado' => Colors.teal,
-      _ => Colors.grey,
+    // Colores mapeados igual que el admin panel (tailwind.config.js)
+    final (Color bg, Color fg, String label) = switch (status) {
+      'pendiente'         => (const Color(0xFFFEF3C7), const Color(0xFF92400E), 'Pendiente'),
+      'asignado'          => (const Color(0xFFDBEAFE), const Color(0xFF1E40AF), 'Asignado'),
+      'aceptado'          => (const Color(0xFFD1FAE5), const Color(0xFF065F46), 'Aceptado'),
+      'pendiente_entrega' => (const Color(0xFFE0E7FF), const Color(0xFF3730A3), 'En Reparto'),
+      'entregado'         => (const Color(0xFFD1FAE5), const Color(0xFF065F46), 'Entregado'),
+      'rechazado'         => (const Color(0xFFFEE2E2), const Color(0xFF991B1B), 'Rechazado'),
+      _                   => (const Color(0xFFF3F4F6), const Color(0xFF6B7280), status),
     };
 
-    return Chip(
-      label: Text(status),
-      backgroundColor: color.withValues(alpha: 0.14),
-      labelStyle: TextStyle(color: color.shade700),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -873,12 +1391,24 @@ class _InfoPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Text('$label: $value'),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          children: [
+            TextSpan(text: '$label: '),
+            TextSpan(
+              text: value,
+              style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

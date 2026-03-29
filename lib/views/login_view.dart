@@ -41,15 +41,41 @@ class _LoginViewState extends State<LoginView> {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // Logo igual al sidebar del admin panel
+                          Center(
+                            child: Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF6B3E),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'B',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
                           Text(
                             'Barraca Morales',
-                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF2D3748),
+                                ),
                             textAlign: TextAlign.center,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 4),
                           Text(
-                            'Ingreso móvil para Android Studio',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            'Sistema de Logística',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF718096),
+                                ),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 24),

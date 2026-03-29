@@ -13,10 +13,13 @@
 migrate_working_dir/
 
 # IntelliJ related
-*.iml
+# *.iml  ← necesario para módulos de Android Studio
 *.ipr
 *.iws
-.idea/
+# IntelliJ - excluir todo excepto run configs y librerías
+.idea/workspace.xml
+.idea/shelf/
+.idea/caches/
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
