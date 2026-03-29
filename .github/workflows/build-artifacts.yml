@@ -159,6 +159,11 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Update CocoaPods dependencies
+        run: |
+          cd macos
+          pod install --repo-update
+
       - name: Build macOS release (live API)
         shell: bash
         run: |
