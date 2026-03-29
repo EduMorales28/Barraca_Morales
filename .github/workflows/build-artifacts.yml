@@ -70,12 +70,11 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows release (live API)
-        shell: pwsh
+        shell: bash
         run: |
-          $api = "${{ env.API_BASE_URL }}".Trim()
-          $api = $api -replace '^[A-Za-z_][A-Za-z0-9_]*\s*=\s*', ''
-          Write-Host "Using API_BASE_URL=$api"
-          flutter build windows --release "--dart-define=API_BASE_URL=$api"
+          API_BASE_URL_CLEAN="$(echo "${{ env.API_BASE_URL }}" | sed -E 's/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*//' | xargs)"
+          echo "Using API_BASE_URL=$API_BASE_URL_CLEAN"
+          flutter build windows --release --dart-define=API_BASE_URL="$API_BASE_URL_CLEAN"
 
       - name: Package Windows app
         shell: pwsh
